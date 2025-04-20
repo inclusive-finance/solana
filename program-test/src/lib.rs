@@ -94,8 +94,15 @@ fn get_invoke_context<'a, 'b>() -> &'a mut InvokeContext<'b> {
     unsafe { transmute::<usize, &mut InvokeContext>(ptr) }
 }
 
+// This is similar to ProcessInstruction, but with more restrictive lifetimes.
+// This is required to work around an issue with anchor 0.29.0
+// https://github.com/coral-xyz/anchor/pull/2711
+// Most likely, the issue should be resolved in anchor, but doing so would be far more changes,
+// So we hack it here instead.
+pub type RestrictiveProcessInstruction = for<'info> fn(program_id: &Pubkey, accounts: &'info [AccountInfo<'info>], instruction_data: &[u8]) -> ProgramResult;
+
 pub fn builtin_process_instruction(
-    process_instruction: solana_sdk::entrypoint::ProcessInstruction,
+    process_instruction: RestrictiveProcessInstruction,
     invoke_context: &mut InvokeContext,
 ) -> Result<(), Box<dyn std::error::Error>> {
     set_invoke_context(invoke_context);
@@ -139,7 +146,7 @@ pub fn builtin_process_instruction(
     stable_log::program_success(&log_collector, program_id);
 
     // Lookup table for AccountInfo
-    let account_info_map: HashMap<_, _> = account_infos.into_iter().map(|a| (a.key, a)).collect();
+    let account_info_map: HashMap<_, _> = account_infos.clone().into_iter().map(|a| (a.key, a)).collect();
 
     // Re-fetch the instruction context. The previous reference may have been
     // invalidated due to the `set_invoke_context` in a CPI.
